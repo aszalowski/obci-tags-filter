@@ -1,6 +1,6 @@
 # obci-tags-filter
 
-obci-tags-filter is a command line tool to filter out certain tags from `.obci.tag` files based on certain words that should be excluded.
+obci-tags-filter is a command line tool to filter out tags from `.obci.tag` files based on words that should be excluded.
 
 
 ## Installation and usage
