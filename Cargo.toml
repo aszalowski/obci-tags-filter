@@ -1,5 +1,5 @@
 [package]
-name = "tag-cleanup"
+name = "obci-tags-filter"
 version = "0.1.0"
 edition = "2021"
 
