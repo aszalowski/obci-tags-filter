@@ -2,6 +2,7 @@
 name = "obci-tags-filter"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.72.0-nightly"
 
 [toolchain]
 channel = "nightly"
