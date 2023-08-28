@@ -1,65 +1,58 @@
-use quick_xml::events::{BytesEnd, BytesStart, Event};
-use quick_xml::reader::Reader;
-use quick_xml::writer::Writer;
-use std::io::Cursor;
-use std::str;
+#![feature(path_file_prefix)]
 
-fn main() {
-    let mut reader = Reader::from_file("test_data/p6/N400_ab6c_PW2.tag").unwrap();
-    reader.trim_text(true);
-    let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), 32, 2);
-    let mut tag_buf = Vec::new();
-    let mut inner_tag_buf = Vec::new();
-    let mut skip_tag = false;
-    let mut writer_buffer = Vec::new();
-    loop {
-        match reader.read_event_into(&mut tag_buf) {
-            Ok(Event::Start(e)) if e.name().as_ref() == b"tag" => {
-                writer_buffer.push(Event::Start(e.into_owned()));
-                loop {
-                    match reader.read_event_into(&mut inner_tag_buf) {
-                        Ok(Event::Start(inner_tag)) if inner_tag.name().as_ref() == b"nazw_obr" => {
-                            writer_buffer.push(Event::Start(inner_tag.into_owned()));
-                            let mut stimulus_name_buf = Vec::new();
-                            match reader.read_event_into(&mut stimulus_name_buf) {
-                                Ok(Event::Text(stimulus_name)) => {
-                                    if str::from_utf8(stimulus_name.as_ref())
-                                        .unwrap()
-                                        .contains("lalka")
-                                    {
-                                        skip_tag = true;
-                                    } else {
-                                        writer_buffer.push(Event::Text(stimulus_name.into_owned()));
-                                    }
-                                }
-                                _ => panic!("Expected text after tag."),
-                            };
-                        }
-                        Ok(Event::End(e)) if e.name().as_ref() == b"tag" => {
-                            if skip_tag {
-                                writer_buffer.clear();
-                                skip_tag = false
-                            } else {
-                                writer_buffer.push(Event::End(e.into_owned()));
-                                for event in writer_buffer.iter() {
-                                    assert!(writer.write_event(event).is_ok());
-                                }
-                                writer_buffer.clear()
-                            }
-                            break;
-                        }
-                        Ok(Event::Eof) => break,
-                        Ok(e) => writer_buffer.push(e.into_owned()),
-                        Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
-                    }
+use anyhow::{bail, Result};
+use std::{fs::{self, File}, io::BufReader};
+use walkdir::DirEntry;
+
+use xml_processing::process_xml;
+
+use crate::{cli::{Cli, Parser}, io::make_backup_path};
+use crate::io::{
+    find_tag_files, load_exclude_words_from_file, make_exclude_words_path, make_output_path,
+};
+
+mod cli;
+mod io;
+mod xml_processing;
+
+fn process_entry(entry: &DirEntry) -> Result<()> {
+    println!("Found tag file: {}", entry.file_name().to_string_lossy());
+    let input_path = entry.path();
+    let exclude_words_path = make_exclude_words_path(input_path)?;
+    let exclude_words = load_exclude_words_from_file(exclude_words_path)?;
+
+    let input = BufReader::new(File::open(input_path)?);
+
+    let output_path = make_output_path(input_path)?;
+    let mut output = File::create(output_path.clone())?;
+
+    process_xml(input, &mut output, exclude_words.as_slice());
+
+    fs::rename(input_path, make_backup_path(input_path)?)?;
+    fs::rename(output_path, input_path)?;
+
+    println!("Processed.\n");
+    Ok(())
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    for entry in find_tag_files(cli.data_path) {
+        match entry {
+            Ok(entry) => {
+                if let Err(error) = process_entry(&entry) {
+                    println!(
+                        "Skipping {}: {}\n",
+                        entry.file_name().to_string_lossy(),
+                        error.to_string()
+                    )
                 }
             }
-            Ok(Event::Eof) => break,
-            Ok(e) => assert!(writer.write_event(e).is_ok()),
-            Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
+            Err(error) => bail!("{:?}", error),
         }
     }
 
-    let result = writer.into_inner().into_inner();
-    println!("{}", str::from_utf8(result.as_slice()).unwrap())
+    println!("Finished.");
+    Ok(())
 }
